@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/utils.bash"
+check_dependencies
+
+[[ -z "${ASDF_INSTALL_VERSION:-}" ]] && fail "ASDF_INSTALL_VERSION required"
+[[ -z "${ASDF_INSTALL_PATH:-}" ]] && fail "ASDF_INSTALL_PATH required"
+
+dp="${ASDF_DOWNLOAD_PATH:-${ASDF_INSTALL_PATH}/tmp}"
+
+if [[ ! -d "${dp}" ]] || [[ ! -f "${dp}/bebopc" ]]; then
+  mkdir -p "${dp}"
+  log_info "Downloading bebop ${ASDF_INSTALL_VERSION}..."
+  download_file "$(get_download_url "${ASDF_INSTALL_VERSION}")" "${dp}/bebopc.zip"
+  unzip -q "${dp}/bebopc.zip" -d "${dp}"
+  rm "${dp}/bebopc.zip"
+fi
+
+mkdir -p "${ASDF_INSTALL_PATH}/bin"
+cp "${dp}/bebopc" "${ASDF_INSTALL_PATH}/bin/"
+chmod +x "${ASDF_INSTALL_PATH}/bin/bebopc"
+
+[[ -d "${ASDF_INSTALL_PATH}/tmp" ]] && rm -rf "${ASDF_INSTALL_PATH}/tmp"
+log_info "bebop ${ASDF_INSTALL_VERSION} installed"
