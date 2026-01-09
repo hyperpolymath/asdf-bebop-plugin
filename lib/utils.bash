@@ -2,61 +2,79 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 set -euo pipefail
 
-readonly REPO_ID="274080289"  # betwixt-labs/bebop (redirected)
-export TOOL_NAME="bebop" TOOL_CMD="bebopc"
+TOOL_NAME="bebop"
+TOOL_REPO="betwixt-labs/bebop"
+BINARY_NAME="bebopc"
 
-log_info() { echo "[asdf-bebop] $*" >&2; }
-fail() { echo "[asdf-bebop] ERROR: $*" >&2; exit 1; }
+fail() {
+  echo -e "\e[31mFail:\e[m $*" >&2
+  exit 1
+}
 
 get_platform() {
-  case "$(uname -s)" in
-    Linux*) echo "linux" ;;
-    Darwin*) echo "macos" ;;
-    MINGW*|MSYS*|CYGWIN*) echo "windows" ;;
-    *) fail "Unsupported platform: $(uname -s)" ;;
+  local os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$os" in
+    darwin) echo "darwin" ;;
+    linux) echo "linux" ;;
+    *) fail "Unsupported OS: $os" ;;
   esac
 }
 
 get_arch() {
-  case "$(uname -m)" in
-    x86_64|amd64) echo "x64" ;;
+  local arch="$(uname -m)"
+  case "$arch" in
+    x86_64|amd64) echo "amd64" ;;
     aarch64|arm64) echo "arm64" ;;
-    *) fail "Unsupported architecture: $(uname -m)" ;;
+    *) fail "Unsupported architecture: $arch" ;;
   esac
 }
 
-curl_wrapper() {
-  curl --silent --fail --location --retry 3 \
-    ${GITHUB_TOKEN:+--header "Authorization: token ${GITHUB_TOKEN}"} "$@"
-}
-
-download_file() {
-  curl --fail --location --retry 3 -o "$2" \
-    ${GITHUB_TOKEN:+--header "Authorization: token ${GITHUB_TOKEN}"} "$1"
-}
-
 list_all_versions() {
-  curl_wrapper "https://api.github.com/repositories/${REPO_ID}/releases?per_page=100" |
-    grep -oE '"tag_name":\s*"v[0-9]+\.[0-9]+\.[0-9]+"' |
-    sed 's/"tag_name":\s*"v\([^"]*\)"/\1/' |
-    sort -t. -k1,1n -k2,2n -k3,3n |
-    tr '\n' ' '
-}
-
-get_latest_stable() {
-  list_all_versions | tr ' ' '\n' | grep -v '^$' | tail -1
+  curl -sL "https://api.github.com/repos/$TOOL_REPO/releases" |
+    grep -oE '"tag_name": "[^"]+"' |
+    sed 's/"tag_name": "v\?//' |
+    sed 's/"//' |
+    grep -E '^[0-9]' |
+    sort -V
 }
 
 get_download_url() {
   local version="$1"
-  local platform arch
-  platform="$(get_platform)"
-  arch="$(get_arch)"
-  # bebopc-linux-x64.zip
-  echo "https://github.com/betwixt-labs/bebop/releases/download/v${version}/bebopc-${platform}-${arch}.zip"
+  local os="$(get_platform)"
+  local arch="$(get_arch)"
+
+  # Try with v prefix first, then without
+  local asset_name
+  asset_name="$(echo 'bebopc-{os}' | sed "s/{version}/$version/g" | sed "s/{os}/$os/g" | sed "s/{arch}/$arch/g" | sed "s/{binary}/$BINARY_NAME/g")"
+
+  local url="https://github.com/$TOOL_REPO/releases/download/v$version/$asset_name"
+
+  # Check if URL exists
+  if curl -sfLI "$url" >/dev/null 2>&1; then
+    echo "$url"
+  else
+    # Try without v prefix
+    url="https://github.com/$TOOL_REPO/releases/download/$version/$asset_name"
+    echo "$url"
+  fi
 }
 
-check_dependencies() {
-  command -v curl &>/dev/null || fail "curl is required"
-  command -v unzip &>/dev/null || fail "unzip is required"
+download_release() {
+  local version="$1"
+  local download_path="$2"
+  local url
+  url="$(get_download_url "$version")"
+
+  echo "Downloading $TOOL_NAME $version from $url"
+  curl -fsSL "$url" -o "$download_path/$BINARY_NAME" || fail "Download failed"
+  chmod +x "$download_path/$BINARY_NAME"
+}
+
+install_version() {
+  local version="$1"
+  local install_path="$2"
+
+  mkdir -p "$install_path/bin"
+  cp "$ASDF_DOWNLOAD_PATH/$BINARY_NAME" "$install_path/bin/"
+  chmod +x "$install_path/bin/$BINARY_NAME"
 }
